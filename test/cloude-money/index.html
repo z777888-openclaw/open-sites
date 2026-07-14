@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>СИГНАЛ / ШУМ — ИИ на финансовых рынках</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;700;900&family=Manrope:wght@300;500;700&family=JetBrains+Mono:wght@400;700&display=swap&subset=cyrillic,latin" rel="stylesheet">
+<style>
+  :root {
+    --void:   #030604;
+    --pit:    #070C09;
+    --panel:  #0B120E;
+    --acid:   #00FF88;
+    --acid-d: #0A5F3C;
+    --blood:  #FF2D3D;
+    --blood-d:#5E1119;
+    --bone:   #E4F2E9;
+    --ash:    #5E7568;
+
+    --display: 'Unbounded', system-ui, sans-serif;
+    --body:    'Manrope', system-ui, sans-serif;
+    --mono:    'JetBrains Mono', ui-monospace, monospace;
+
+    --pad: clamp(20px, 5vw, 90px);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--void);
+    color: var(--bone);
+    font-family: var(--body);
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection { background: var(--acid); color: var(--void); }
+
+  /* ============ ЖИВОЙ ГРАФИК НА ФОНЕ ============ */
+  #tape-canvas {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    opacity: .30;
+    pointer-events: none;
+  }
+
+  .vignette {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    background: radial-gradient(ellipse 80% 60% at 50% 50%, transparent 0%, rgba(3,6,4,.72) 60%, var(--void) 100%);
+  }
+
+  main { position: relative; z-index: 2; }
+
+  /* ============ ЗАГРУЗКА-ТЕРМИНАЛ ============ */
+  #boot {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    background: var(--void);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-size: clamp(11px, 1.3vw, 14px);
+    transition: opacity .7s ease .3s, visibility 0s linear 1s;
+  }
+  #boot.gone { opacity: 0; visibility: hidden; }
+  #boot-lines { width: min(520px, 84vw); }
+  #boot-lines div { color: var(--ash); line-height: 2; white-space: nowrap; }
+  #boot-lines div b { color: var(--acid); font-weight: 700; }
+  #boot-lines div i { color: var(--blood); font-style: normal; }
+
+  /* ============ ПРОГРЕСС СКРОЛЛА ============ */
+  #progress {
+    position: fixed;
+    top: 0; left: 0;
+    height: 2px;
+    width: 0%;
+    background: var(--acid);
+    box-shadow: 0 0 14px var(--acid);
+    z-index: 60;
+  }
+
+  /* ============ ХРОМАТИЧЕСКАЯ АБЕРРАЦИЯ — ГЛАВНЫЙ ПРИЁМ ============ */
+  .split {
+    position: relative;
+    display: inline-block;
+    color: var(--bone);
+  }
+  .split::before,
+  .split::after {
+    content: attr(data-t);
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    pointer-events: none;
+  }
+  .split::before {
+    color: var(--blood);
+    transform: translate(-3px, 2px);
+    mix-blend-mode: screen;
+    opacity: .9;
+  }
+  .split::after {
+    color: var(--acid);
+    transform: translate(3px, -2px);
+    mix-blend-mode: screen;
+    opacity: .9;
+  }
+  .split.jitter::before { animation: jit-a 4.5s steps(1) infinite; }
+  .split.jitter::after  { animation: jit-b 4.5s steps(1) infinite; }
+
+  @keyframes jit-a {
+    0%,88%,100% { transform: translate(-3px, 2px); }
+    90% { transform: translate(-9px, 4px); }
+    92% { transform: translate(-1px, -3px); }
+    94% { transform: translate(-6px, 1px); }
+  }
+  @keyframes jit-b {
+    0%,88%,100% { transform: translate(3px, -2px); }
+    90% { transform: translate(9px, -5px); }
+    92% { transform: translate(0px, 3px); }
+    94% { transform: translate(6px, -1px); }
+  }
+
+  /* ============ HERO ============ */
+  .hero {
+    min-height: 100svh;
+    padding: var(--pad);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .3em;
+    color: var(--acid);
+    text-transform: uppercase;
+    margin-bottom: 34px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .eyebrow .dot {
+    width: 7px; height: 7px;
+    background: var(--acid);
+    border-radius: 50%;
+    box-shadow: 0 0 12px var(--acid);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+
+  h1 {
+    font-family: var(--display);
+    font-weight: 900;
+    font-size: clamp(40px, 9.2vw, 148px);
+    line-height: .92;
+    letter-spacing: -.04em;
+    text-transform: uppercase;
+  }
+  h1 .thin {
+    display: block;
+    font-weight: 400;
+    font-size: .34em;
+    letter-spacing: -.01em;
+    text-transform: none;
+    color: var(--ash);
+    margin-top: 30px;
+    line-height: 1.4;
+    max-width: 26ch;
+  }
+
+  /* ============ ТИКЕРНАЯ ЛЕНТА ============ */
+  .ticker {
+    margin-top: 56px;
+    border-top: 1px solid var(--acid-d);
+    border-bottom: 1px solid var(--acid-d);
+    overflow: hidden;
+    white-space: nowrap;
+    padding: 14px 0;
+    background: rgba(7,12,9,.6);
+  }
+  .ticker-track {
+    display: inline-block;
+    animation: slide 42s linear infinite;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .08em;
+  }
+  .ticker-track span { padding: 0 26px; color: var(--ash); }
+  .ticker-track span.up { color: var(--acid); }
+  .ticker-track span.dn { color: var(--blood); }
+  @keyframes slide { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+  /* ============ ОБЩИЕ СЕКЦИИ ============ */
+  section.blk {
+    padding: clamp(90px, 13vh, 180px) var(--pad);
+    border-top: 1px solid rgba(10,95,60,.35);
+    background: linear-gradient(to bottom, rgba(3,6,4,.55), rgba(3,6,4,.88));
+  }
+
+  .kicker {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .28em;
+    text-transform: uppercase;
+    color: var(--acid);
+    margin-bottom: 26px;
+  }
+
+  h2 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: clamp(28px, 4.6vw, 62px);
+    line-height: 1.04;
+    letter-spacing: -.03em;
+    max-width: 20ch;
+    margin-bottom: 40px;
+  }
+
+  .lede {
+    font-size: clamp(15px, 1.4vw, 20px);
+    font-weight: 300;
+    line-height: 1.68;
+    color: var(--ash);
+    max-width: 60ch;
+  }
+  .lede b { color: var(--bone); font-weight: 500; }
+
+  /* ============ ВСКРЫТИЕ ПРИ СКРОЛЛЕ ============ */
+  .rise { opacity: 0; transform: translateY(34px); transition: opacity .8s ease, transform .8s cubic-bezier(.16,1,.3,1); }
+  .rise.on { opacity: 1; transform: none; }
+  .rise.d1 { transition-delay: .1s; }
+  .rise.d2 { transition-delay: .2s; }
+  .rise.d3 { transition-delay: .3s; }
+
+  /* ============ ДА / НЕТ ============ */
+  .verdict { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1px; background: rgba(10,95,60,.3); margin-top: 20px; }
+  .vcol { background: var(--pit); padding: 34px 30px; }
+  .vcol h3 {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .22em;
+    text-transform: uppercase;
+    margin-bottom: 26px;
+    padding-bottom: 14px;
+  }
+  .vcol.no  h3 { color: var(--blood); border-bottom: 1px solid var(--blood-d); }
+  .vcol.yes h3 { color: var(--acid);  border-bottom: 1px solid var(--acid-d); }
+  .vcol ul { list-style: none; }
+  .vcol li {
+    padding: 16px 0 16px 30px;
+    position: relative;
+    font-size: 15px;
+    font-weight: 300;
+    line-height: 1.6;
+    color: var(--bone);
+  }
+  .vcol li em { display: block; font-style: normal; color: var(--ash); font-size: .88em; margin-top: 6px; line-height: 1.6; }
+  .vcol li::before {
+    position: absolute;
+    left: 0; top: 16px;
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 14px;
+  }
+  .vcol.no  li::before { content: "✕"; color: var(--blood); }
+  .vcol.yes li::before { content: "→"; color: var(--acid); }
+
+  /* ============ СИГНАТУРА: ШУМ → СИГНАЛ ============ */
+  .lab {
+    border: 1px solid var(--acid-d);
+    background: var(--pit);
+    padding: clamp(20px, 3vw, 40px);
+    margin-top: 20px;
+  }
+  .lab-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .2em;
+    text-transform: uppercase;
+    color: var(--ash);
+    margin-bottom: 22px;
+  }
+  #lab-state { font-weight: 700; font-size: 13px; }
+  #lab-canvas { width: 100%; height: clamp(180px, 30vh, 300px); display: block; }
+
+  .slider-wrap { margin-top: 26px; }
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(to right, var(--blood), var(--acid));
+    outline: none;
+    cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 22px; height: 22px;
+    background: var(--bone);
+    border: 3px solid var(--void);
+    box-shadow: 0 0 18px rgba(0,255,136,.7);
+    cursor: grab;
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 22px; height: 22px;
+    background: var(--bone);
+    border: 3px solid var(--void);
+    box-shadow: 0 0 18px rgba(0,255,136,.7);
+    cursor: grab;
+    border-radius: 0;
+  }
+  input[type="range"]:focus-visible { outline: 2px solid var(--acid); outline-offset: 8px; }
+  .slider-legend {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 14px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+  }
+  .slider-legend .l { color: var(--blood); }
+  .slider-legend .r { color: var(--acid); text-align: right; }
+
+  /* ============ ЧЕТЫРЕ КОНТУРА ============ */
+  .grid4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1px; background: rgba(10,95,60,.3); margin-top: 20px; }
+  .card {
+    background: var(--pit);
+    padding: 32px 28px;
+    transition: background .35s ease;
+    position: relative;
+  }
+  .card::after {
+    content: "";
+    position: absolute;
+    left: 0; bottom: 0;
+    width: 0; height: 2px;
+    background: var(--acid);
+    box-shadow: 0 0 14px var(--acid);
+    transition: width .45s cubic-bezier(.16,1,.3,1);
+  }
+  .card:hover { background: var(--panel); }
+  .card:hover::after { width: 100%; }
+  .card .code {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .2em;
+    color: var(--acid);
+    display: block;
+    margin-bottom: 20px;
+  }
+  .card h3 { font-family: var(--display); font-weight: 700; font-size: 21px; letter-spacing: -.015em; margin-bottom: 14px; }
+  .card p { font-size: 14px; font-weight: 300; line-height: 1.65; color: var(--ash); }
+
+  /* ============ ЦИФРЫ ============ */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 44px; margin-top: 20px; }
+  .stat .num {
+    font-family: var(--display);
+    font-weight: 900;
+    font-size: clamp(46px, 6.4vw, 92px);
+    line-height: 1;
+    letter-spacing: -.045em;
+    color: var(--acid);
+    text-shadow: 0 0 48px rgba(0,255,136,.42);
+  }
+  .stat.red .num { color: var(--blood); text-shadow: 0 0 48px rgba(255,45,61,.42); }
+  .stat .cap { font-size: 14px; font-weight: 300; line-height: 1.6; color: var(--ash); margin-top: 18px; max-width: 24ch; }
+
+  /* ============ ПАЙПЛАЙН ============ */
+  .flow { display: flex; flex-wrap: wrap; margin-top: 20px; }
+  .node {
+    flex: 1 1 160px;
+    min-width: 140px;
+    border: 1px solid rgba(10,95,60,.5);
+    border-right: none;
+    padding: 26px 20px;
+    background: var(--pit);
+    transition: background .3s ease;
+  }
+  .node:last-child { border-right: 1px solid rgba(10,95,60,.5); }
+  .node:hover { background: var(--panel); }
+  .node .t { font-family: var(--mono); font-size: 11px; letter-spacing: .18em; color: var(--ash); display: block; margin-bottom: 14px; }
+  .node .v { font-family: var(--display); font-weight: 400; font-size: 15px; line-height: 1.35; }
+  .node.human { background: rgba(0,255,136,.06); border-color: var(--acid); }
+  .node.human .t { color: var(--acid); }
+  .node.human .v { color: var(--acid); font-weight: 700; }
+
+  /* ============ КРАСНАЯ СЕКЦИЯ: ЦВЕТ КАК СМЫСЛ ============ */
+  section.danger {
+    border-top: 1px solid var(--blood-d);
+    background: linear-gradient(to bottom, rgba(24,3,6,.75), rgba(3,6,4,.92));
+  }
+  section.danger .kicker { color: var(--blood); }
+  section.danger h2 .split::before { color: var(--acid); }
+  section.danger h2 .split::after  { color: var(--blood); }
+  .danger-list { margin-top: 20px; border-top: 1px solid var(--blood-d); }
+  .danger-row {
+    display: grid;
+    grid-template-columns: 64px 1fr;
+    gap: clamp(16px, 3vw, 40px);
+    padding: 26px 0;
+    border-bottom: 1px solid var(--blood-d);
+    align-items: baseline;
+    transition: background .3s ease, padding-left .3s ease;
+  }
+  .danger-row:hover { background: rgba(255,45,61,.05); padding-left: 14px; }
+  .danger-row .n { font-family: var(--mono); font-weight: 700; font-size: 13px; color: var(--blood); }
+  .danger-row .b { font-size: clamp(15px, 1.4vw, 19px); font-weight: 500; line-height: 1.5; }
+  .danger-row .b em { display: block; font-style: normal; font-weight: 300; color: var(--ash); font-size: .85em; margin-top: 10px; line-height: 1.65; }
+
+  /* ============ 30 ДНЕЙ ============ */
+  .weeks { margin-top: 20px; border-top: 1px solid rgba(10,95,60,.4); }
+  .week {
+    display: grid;
+    grid-template-columns: 110px 1fr;
+    gap: clamp(16px, 3vw, 40px);
+    padding: 28px 0;
+    border-bottom: 1px solid rgba(10,95,60,.4);
+    align-items: baseline;
+  }
+  .week .w { font-family: var(--mono); font-weight: 700; font-size: 12px; letter-spacing: .14em; color: var(--acid); text-transform: uppercase; }
+  .week .c { font-size: clamp(15px, 1.4vw, 19px); font-weight: 500; line-height: 1.5; }
+  .week .c em { display: block; font-style: normal; font-weight: 300; color: var(--ash); font-size: .85em; margin-top: 10px; line-height: 1.65; }
+
+  /* ============ ФИНАЛ ============ */
+  .final h2 {
+    max-width: 24ch;
+    font-weight: 900;
+    text-transform: uppercase;
+    font-size: clamp(30px, 5.6vw, 78px);
+    letter-spacing: -.04em;
+    line-height: .98;
+  }
+
+  .disclaimer {
+    margin-top: 60px;
+    border-left: 2px solid var(--blood);
+    padding: 6px 0 6px 24px;
+    max-width: 66ch;
+  }
+  .disclaimer .h { font-family: var(--mono); font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: var(--blood); margin-bottom: 14px; }
+  .disclaimer p { font-size: 14px; font-weight: 300; line-height: 1.7; color: var(--ash); }
+
+  footer {
+    padding: 40px var(--pad) 60px;
+    border-top: 1px solid rgba(10,95,60,.35);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .14em;
+    color: var(--acid-d);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 14px;
+    background: var(--void);
+    position: relative;
+    z-index: 2;
+  }
+
+  @media (max-width: 640px) {
+    .danger-row, .week { grid-template-columns: 1fr; gap: 8px; }
+    .node { border-right: 1px solid rgba(10,95,60,.5); border-bottom: none; }
+    .node:last-child { border-bottom: 1px solid rgba(10,95,60,.5); }
+    h1 .thin { font-size: .42em; }
+    .slider-legend { font-size: 9px; letter-spacing: .1em; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .rise { opacity: 1; transform: none; transition: none; }
+    .split.jitter::before, .split.jitter::after { animation: none; }
+    .ticker-track { animation: none; }
+    .eyebrow .dot { animation: none; }
+    #tape-canvas { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="tape-canvas"></canvas>
+<div class="vignette"></div>
+<div id="progress"></div>
+
+<div id="boot"><div id="boot-lines"></div></div>
+
+<main>
+
+  <!-- ================= HERO ================= -->
+  <header class="hero">
+    <div class="eyebrow"><span class="dot"></span> Рынок · Нейросети · Честный разбор</div>
+    <h1>
+      Нейросеть<br>
+      не предсказывает<br>
+      <span class="split jitter" data-t="цену.">цену.</span>
+      <span class="thin">Она сжимает время между гипотезой и решением. Всё остальное, что вам продают под видом «ИИ‑трейдинга», — переобученная кривая на исторических данных.</span>
+    </h1>
+
+    <div class="ticker">
+      <div class="ticker-track" id="tape-strip"></div>
+    </div>
+  </header>
+
+  <!-- ================= ДА / НЕТ ================= -->
+  <section class="blk">
+    <div class="kicker rise">Границы</div>
+    <h2 class="rise d1">Что <span class="split" data-t="не работает">не работает</span>, и что работает</h2>
+    <div class="verdict rise d2">
+      <div class="vcol no">
+        <h3>Не работает</h3>
+        <ul>
+          <li>Прогноз цены
+            <em>Модель не видит будущего. Её «прогноз» — стилистически убедительный текст, а не вероятностное суждение.</em>
+          </li>
+          <li>Робот, который печатает деньги
+            <em>Если бы стратегия работала, её уже арбитражили бы фонды с колокацией. Вы не выиграете у них в скорости.</em>
+          </li>
+          <li>Замена риск-менеджменту
+            <em>Размер позиции, стоп, ликвидность. ИИ может посчитать. Отвечать он не может.</em>
+          </li>
+        </ul>
+      </div>
+      <div class="vcol yes">
+        <h3>Работает</h3>
+        <ul>
+          <li>Чтение первоисточников
+            <em>Отчётности, проспекты, транскрипты. То, что вы физически не успеваете прочитать.</em>
+          </li>
+          <li>Скрининг по вашим критериям
+            <em>Сотый объект обрабатывается так же дотошно, как первый. Без усталости и дрейфа стандартов.</em>
+          </li>
+          <li>Моделирование и стресс-тесты
+            <em>Вопрос «при каком падении выручки всё сломается?» наконец начинают задавать — потому что это минута, а не вечер.</em>
+          </li>
+          <li>Дисциплина и разбор ошибок
+            <em>Самый недооценённый контур. Он не выглядит как технология — он выглядит как работа над собой.</em>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= СИГНАТУРА: ШУМ → СИГНАЛ ================= -->
+  <section class="blk">
+    <div class="kicker rise">Лаборатория</div>
+    <h2 class="rise d1">Вся работа — это отделение <span class="split" data-t="сигнала">сигнала</span> от шума</h2>
+    <p class="lede rise d2" style="margin-bottom:36px">Потяните ползунок. Слева — сырой рынок: красный хаос, в котором любой паттерн вам просто померещится. Справа — то, что остаётся, когда шум отфильтрован дисциплинированным процессом. <b>ИИ не создаёт сигнал. Он ускоряет фильтрацию.</b></p>
+
+    <div class="lab rise d3">
+      <div class="lab-head">
+        <span>Фильтр · <span id="lab-pct">0</span>%</span>
+        <span id="lab-state">ЧИСТЫЙ ШУМ</span>
+      </div>
+      <canvas id="lab-canvas"></canvas>
+      <div class="slider-wrap">
+        <input type="range" id="lab-slider" min="0" max="100" value="0" aria-label="Уровень фильтрации шума">
+        <div class="slider-legend">
+          <span class="l">◄ Хаос · интуиция · «мне кажется»</span>
+          <span class="r">Процесс · критерии · проверка ►</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= ЧЕТЫРЕ КОНТУРА ================= -->
+  <section class="blk">
+    <div class="kicker rise">Карта</div>
+    <h2 class="rise d1">Четыре контура, где преимущество реально есть</h2>
+    <div class="grid4 rise d2">
+      <div class="card">
+        <span class="code">RSCH</span>
+        <h3>Исследование</h3>
+        <p>Загружаете годовой отчёт на 300 страниц и требуете ссылку на страницу для каждого числа. Проверяете выборочно. Не читаете вслепую.</p>
+      </div>
+      <div class="card">
+        <span class="code">SCRN</span>
+        <h3>Скрининг</h3>
+        <p>Формализуете свои критерии один раз — дальше воронка от тысяч объектов к десяти работает без вас. Больно только на этапе формализации.</p>
+      </div>
+      <div class="card">
+        <span class="code">MODL</span>
+        <h3>Моделирование</h3>
+        <p>Три сценария вместо одного числа. Живые формулы вместо зашитых значений. Таблица чувствительности вместо ложной точности.</p>
+      </div>
+      <div class="card">
+        <span class="code">DSCP</span>
+        <h3>Дисциплина</h3>
+        <p>«Разбей мой тезис. Найди три причины, почему я ошибаюсь.» Модель не боится вас расстроить — в отличие от вашего окружения.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= ЦИФРЫ ================= -->
+  <section class="blk">
+    <div class="kicker rise">Ожидания</div>
+    <h2 class="rise d1">Честная арифметика</h2>
+    <div class="stats rise d2">
+      <div class="stat red">
+        <div class="num" data-count="0" data-suffix="%">0%</div>
+        <div class="cap">рыночной альфы даёт языковая модель сама по себе</div>
+      </div>
+      <div class="stat">
+        <div class="num" data-count="10" data-suffix="×">0×</div>
+        <div class="cap">реалистичное ускорение исследования при выстроенном процессе</div>
+      </div>
+      <div class="stat">
+        <div class="num" data-count="100" data-suffix="%">0%</div>
+        <div class="cap">ответственности за решение остаётся на вас</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= ПАЙПЛАЙН ================= -->
+  <section class="blk">
+    <div class="kicker rise">Пайплайн</div>
+    <h2 class="rise d1">Где заканчивается автоматизация</h2>
+    <div class="flow rise d2">
+      <div class="node"><span class="t">07:00</span><div class="v">Агент прислал сводку по вашему списку</div></div>
+      <div class="node"><span class="t">09:30</span><div class="v">Скрининг отобрал три объекта из двухсот</div></div>
+      <div class="node"><span class="t">11:00</span><div class="v">Разбор первоисточников</div></div>
+      <div class="node"><span class="t">14:00</span><div class="v">Модель со сценариями и стресс‑тестом</div></div>
+      <div class="node human"><span class="t">16:00</span><div class="v">Решение принимаете вы</div></div>
+    </div>
+    <p class="lede rise d3" style="margin-top:36px">Четыре узла — подготовка. Пятый — человек. Эта граница не техническое ограничение, а <b>сознательный выбор архитектуры</b>. Тот, кто её стирает, рано или поздно объясняет убыток словами «так модель сказала».</p>
+  </section>
+
+  <!-- ================= КРАСНАЯ СЕКЦИЯ ================= -->
+  <section class="blk danger">
+    <div class="kicker rise">Риск</div>
+    <h2 class="rise d1">Четыре способа <span class="split" data-t="потерять деньги">потерять деньги</span> с помощью ИИ</h2>
+    <div class="danger-list rise d2">
+      <div class="danger-row">
+        <div class="n">01</div>
+        <div class="b">Галлюцинация в числе
+          <em>Модель выдаёт правдоподобную цифру, которой нет в отчёте. Противоядие: ссылка на страницу для каждого числа, попадающего в вашу модель. Без исключений.</em>
+        </div>
+      </div>
+      <div class="danger-row">
+        <div class="n">02</div>
+        <div class="b">Устаревшие данные
+          <em>У модели есть граница знаний. Котировки, ставки, состав индексов — только из живого источника. Никогда из памяти модели.</em>
+        </div>
+      </div>
+      <div class="danger-row">
+        <div class="n">03</div>
+        <div class="b">Look-ahead bias в бэктесте
+          <em>Если в тест просочилась информация, недоступная на момент сделки, кривая доходности будет прекрасной и полностью фальшивой.</em>
+        </div>
+      </div>
+      <div class="danger-row">
+        <div class="n">04</div>
+        <div class="b">Ложная уверенность
+          <em>Развёрнутый, грамотный, структурированный ответ ощущается как правда. Убедительность текста и его корректность — независимые величины.</em>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 30 ДНЕЙ ================= -->
+  <section class="blk">
+    <div class="kicker rise">Старт</div>
+    <h2 class="rise d1">Первые 30 дней без иллюзий</h2>
+    <div class="weeks rise d2">
+      <div class="week">
+        <div class="w">Неделя 1</div>
+        <div class="c">Один объект, который вы уже знаете
+          <em>Прогоните через ИИ полный разбор и сравните с тем, что знаете сами. Цель — не заработать, а откалибровать доверие: увидеть, где модель права, а где уверенно врёт.</em>
+        </div>
+      </div>
+      <div class="week">
+        <div class="w">Неделя 2</div>
+        <div class="c">Запишите свои критерии отбора
+          <em>Честно, до последнего пункта. Будет больно: выяснится, что половина критериев у вас не сформулирована, а существует как интуиция.</em>
+        </div>
+      </div>
+      <div class="week">
+        <div class="w">Неделя 3</div>
+        <div class="c">Соберите одну модель со сценариями
+          <em>Проверьте каждую формулу руками. Один раз проверив каркас, дальше вы переиспользуете его сотни раз.</em>
+        </div>
+      </div>
+      <div class="week">
+        <div class="w">Неделя 4</div>
+        <div class="c">Заведите журнал решений
+          <em>Тезис записывается до входа, а не после. Через квартал у вас появится то, чего нет почти ни у кого: данные о собственных ошибках.</em>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= ФИНАЛ ================= -->
+  <section class="blk final">
+    <div class="kicker rise">Итог</div>
+    <h2 class="rise d1">Инструмент не даёт преимущества. Его даёт <span class="split jitter" data-t="процесс">процесс</span></h2>
+    <p class="lede rise d2">ИИ не сделает из плохого инвестора хорошего. Он сделает быстрым того, кто уже знает, что ищет. Поэтому вся работа — не в промптах, а в том, чтобы у вас был <b>процесс, достойный ускорения</b>.</p>
+
+    <div class="disclaimer rise d3">
+      <div class="h">Дисклеймер</div>
+      <p>Материал носит образовательный характер и не является инвестиционной рекомендацией, индивидуальной инвестиционной консультацией или предложением о совершении сделок. Операции на финансовых рынках сопряжены с риском полной потери вложенных средств. Прошлая доходность не гарантирует будущей. Решения вы принимаете самостоятельно и несёте за них полную ответственность.</p>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <span>СИГНАЛ / ШУМ</span>
+  <span>Собрано в диалоге с Claude</span>
+</footer>
+
+<script>
+(function () {
+  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---------- 1. ЗАГРУЗКА-ТЕРМИНАЛ ---------- */
+  var bootBox = document.getElementById('boot');
+  var bootLines = document.getElementById('boot-lines');
+  var script = [
+    'подключение к потоку котировок ..... <b>ok</b>',
+    'загрузка исторических рядов ........ <b>ok</b>',
+    'поиск гарантированной альфы ........ <i>не найдено</i>',
+    'калибровка ожиданий ................ <b>готово</b>'
+  ];
+
+  if (reduced) {
+    bootBox.classList.add('gone');
+  } else {
+    var li = 0;
+    var typer = setInterval(function () {
+      if (li >= script.length) {
+        clearInterval(typer);
+        setTimeout(function () { bootBox.classList.add('gone'); }, 480);
+        return;
+      }
+      var d = document.createElement('div');
+      d.innerHTML = script[li];
+      bootLines.appendChild(d);
+      li++;
+    }, 330);
+  }
+
+  /* ---------- 2. ТИКЕРНАЯ ЛЕНТА ---------- */
+  var symbols = ['ИИ-ПРОГНОЗ','ГАРАНТИРОВАННАЯ АЛЬФА','ГАЛЛЮЦИНАЦИИ','ПРОЦЕСС','ИНТУИЦИЯ','СКРИНИНГ','ХАЙП','ДИСЦИПЛИНА','ПОДГОН БЭКТЕСТА','ЖУРНАЛ СДЕЛОК','ЧУЙКА','ПРОВЕРКА ИСТОЧНИКА','РОБОТ-ГРААЛЬ','РИСК-МЕНЕДЖМЕНТ'];
+  var moves   = [ -100, -100, -87, 240, -64, 180, -99, 310, -71, 260, -88, 195, -100, 150 ];
+  var strip = document.getElementById('tape-strip');
+  var html = '';
+  for (var pass = 0; pass < 2; pass++) {
+    for (var s = 0; s < symbols.length; s++) {
+      var m = moves[s];
+      var cls = m >= 0 ? 'up' : 'dn';
+      var sign = m >= 0 ? '▲ +' : '▼ ';
+      html += '<span class="' + cls + '">' + symbols[s] + ' ' + sign + m + '%</span>';
+    }
+  }
+  strip.innerHTML = html;
+
+  /* ---------- 3. ЖИВОЙ СВЕЧНОЙ ГРАФИК НА ФОНЕ ---------- */
+  var bg = document.getElementById('tape-canvas');
+  if (!reduced && bg.getContext) {
+    var bctx = bg.getContext('2d');
+    var W = 0, H = 0, candles = [], price = 100;
+
+    function makeCandle() {
+      var open = price;
+      var drift = (Math.random() - 0.48) * 4.2;
+      price = Math.max(40, Math.min(160, price + drift));
+      var close = price;
+      var wick = Math.random() * 2.6;
+      return {
+        open: open,
+        close: close,
+        high: Math.max(open, close) + wick,
+        low: Math.min(open, close) - wick
+      };
+    }
+
+    function sizeBg() {
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      W = window.innerWidth;
+      H = window.innerHeight;
+      bg.width = W * dpr;
+      bg.height = H * dpr;
+      bctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      var need = Math.ceil(W / 16) + 2;
+      while (candles.length < need) candles.push(makeCandle());
+      while (candles.length > need) candles.shift();
+    }
+
+    function drawBg() {
+      bctx.clearRect(0, 0, W, H);
+      var cw = 16, bw = 9;
+      var mid = H / 2, scale = H / 260;
+
+      for (var i = 0; i < candles.length; i++) {
+        var c = candles[i];
+        var x = i * cw;
+        var up = c.close >= c.open;
+        var col = up ? '#00FF88' : '#FF2D3D';
+
+        var yHigh = mid - (c.high - 100) * scale;
+        var yLow  = mid - (c.low  - 100) * scale;
+        var yO    = mid - (c.open - 100) * scale;
+        var yC    = mid - (c.close - 100) * scale;
+
+        bctx.strokeStyle = col;
+        bctx.globalAlpha = 0.55;
+        bctx.lineWidth = 1;
+        bctx.beginPath();
+        bctx.moveTo(x + bw / 2, yHigh);
+        bctx.lineTo(x + bw / 2, yLow);
+        bctx.stroke();
+
+        bctx.globalAlpha = 0.85;
+        bctx.fillStyle = col;
+        var top = Math.min(yO, yC);
+        var hgt = Math.max(Math.abs(yC - yO), 1.5);
+        bctx.fillRect(x, top, bw, hgt);
+      }
+      bctx.globalAlpha = 1;
+    }
+
+    sizeBg();
+    drawBg();
+    window.addEventListener('resize', function () { sizeBg(); drawBg(); });
+
+    setInterval(function () {
+      candles.push(makeCandle());
+      candles.shift();
+      drawBg();
+    }, 620);
+  }
+
+  /* ---------- 4. СИГНАТУРА: ШУМ → СИГНАЛ ---------- */
+  var lab = document.getElementById('lab-canvas');
+  var slider = document.getElementById('lab-slider');
+  var pctOut = document.getElementById('lab-pct');
+  var stateOut = document.getElementById('lab-state');
+  var lctx = lab.getContext('2d');
+
+  var N = 190;
+  var signal = [];
+  var noise = [];
+  var seed = 7;
+  function rnd() { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }
+  for (var i = 0; i < N; i++) {
+    signal.push(Math.sin(i / 26) * 16 + i * 0.20);
+    noise.push((rnd() - 0.5) * 92);
+  }
+
+  var LW = 0, LH = 0;
+
+  function lerp(a, b, t) { return a + (b - a) * t; }
+
+  function drawLab() {
+    var k = parseInt(slider.value, 10) / 100;
+    lctx.clearRect(0, 0, LW, LH);
+
+    var mid = LH / 2;
+    var step = LW / (N - 1);
+    var amp = LH / 130;
+
+    lctx.strokeStyle = 'rgba(10,95,60,.28)';
+    lctx.lineWidth = 1;
+    for (var g = 1; g < 4; g++) {
+      var gy = (LH / 4) * g;
+      lctx.beginPath();
+      lctx.moveTo(0, gy);
+      lctx.lineTo(LW, gy);
+      lctx.stroke();
+    }
+
+    var cr = Math.round(lerp(255, 0, k));
+    var cg = Math.round(lerp(45, 255, k));
+    var cb = Math.round(lerp(61, 136, k));
+    var col = 'rgb(' + cr + ',' + cg + ',' + cb + ')';
+
+    lctx.beginPath();
+    for (var j = 0; j < N; j++) {
+      var v = signal[j] + noise[j] * (1 - k);
+      var x = j * step;
+      var y = mid - v * amp;
+      if (j === 0) lctx.moveTo(x, y); else lctx.lineTo(x, y);
+    }
+    lctx.strokeStyle = col;
+    lctx.lineWidth = 2;
+    lctx.shadowColor = col;
+    lctx.shadowBlur = 8 + k * 18;
+    lctx.stroke();
+    lctx.shadowBlur = 0;
+
+    pctOut.textContent = Math.round(k * 100);
+
+    var label, lc;
+    if (k < 0.2)       { label = 'ЧИСТЫЙ ШУМ';            lc = '#FF2D3D'; }
+    else if (k < 0.45) { label = 'КАЖЕТСЯ, ЕСТЬ ПАТТЕРН'; lc = '#FF7A3D'; }
+    else if (k < 0.75) { label = 'ТРЕНД ПРОСТУПАЕТ';      lc = '#E8C15A'; }
+    else if (k < 0.99) { label = 'СИГНАЛ ЧИТАЕТСЯ';       lc = '#7BFF9E'; }
+    else               { label = 'СИГНАЛ';                lc = '#00FF88'; }
+    stateOut.textContent = label;
+    stateOut.style.color = lc;
+  }
+
+  function sizeLab() {
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    LW = lab.clientWidth;
+    LH = lab.clientHeight;
+    lab.width = LW * dpr;
+    lab.height = LH * dpr;
+    lctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawLab();
+  }
+
+  slider.addEventListener('input', drawLab);
+  window.addEventListener('resize', sizeLab);
+  sizeLab();
+
+  /* ---------- 5. ВСКРЫТИЕ ПРИ СКРОЛЛЕ + СЧЁТЧИКИ ---------- */
+  function countUp(el) {
+    var target = parseInt(el.getAttribute('data-count'), 10);
+    var suffix = el.getAttribute('data-suffix') || '';
+    if (target === 0) { el.textContent = '0' + suffix; return; }
+    var t0 = performance.now();
+    function frame(now) {
+      var p = Math.min((now - t0) / 1100, 1);
+      var eased = 1 - Math.pow(1 - p, 3);
+      el.textContent = Math.round(target * eased) + suffix;
+      if (p < 1) requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  var risers = document.querySelectorAll('.rise');
+  if ('IntersectionObserver' in window && !reduced) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) {
+          e.target.classList.add('on');
+          var nums = e.target.querySelectorAll('[data-count]');
+          for (var q = 0; q < nums.length; q++) countUp(nums[q]);
+          io.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.18 });
+    for (var z = 0; z < risers.length; z++) io.observe(risers[z]);
+  } else {
+    for (var y = 0; y < risers.length; y++) risers[y].classList.add('on');
+  }
+
+  /* ---------- 6. ПРОГРЕСС СКРОЛЛА ---------- */
+  var bar = document.getElementById('progress');
+  window.addEventListener('scroll', function () {
+    var max = document.documentElement.scrollHeight - window.innerHeight;
+    var p = max > 0 ? (window.scrollY / max) * 100 : 0;
+    bar.style.width = p + '%';
+  }, { passive: true });
+
+})();
+</script>
+
+</body>
+</html>
